@@ -1,0 +1,38 @@
+######################################################################
+# SMakefile for iffparse
+# Build with SAS/C compiler
+######################################################################
+
+TARGET = iffparse
+
+# Main program objects
+MAIN_OBJS = main.o
+
+# Uncomment the next line to enable debug output:
+# DEBUG_FLAG = DEFINE=DEBUG
+
+CFLAGS = DATA=NEAR CODE=NEAR PARAMETERS=REGISTERS NOSTACKCHECK \
+         STRUCTUREEQUIVALENCE OPTIMIZE NOICONS MAP NOVERSION \
+         UTILITYLIBRARY INCLUDEDIR=include: $(DEBUG_FLAG)
+
+LIBS = sc:lib/sc.lib LIB:amiga.lib sc:lib/scmieee.lib
+
+all: $(TARGET)
+
+# Build main program
+$(TARGET): $(MAIN_OBJS)
+	slink FROM sc:lib/c.o $(MAIN_OBJS) LIB $(LIBS) \
+	      TO $(TARGET).ld STRIPDEBUG
+	slink FROM $(TARGET).ld TO $(TARGET) STRIPDEBUG NODEBUG
+	@protect $(TARGET) add p quiet
+
+# Compile main program sources
+main.o: main.c main.h
+	sc $(CFLAGS) OBJNAME=$@ main.c
+
+clean:
+	-delete $(MAIN_OBJS) $(TARGET) $(TARGET).ld
+
+install:
+	-copy iffparse /SDK/C/iffparse CLONE
+
