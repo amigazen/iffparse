@@ -51,16 +51,34 @@ static const char *verstag = "$VER: iffparse 1.0 (31.12.2025)";
 static const char *stack_cookie = "$STACK: 4096";
 long oslibversion  = 40L; 
 
-/* Command-line template - one required positional file argument and optional QUICK switch */
-static const char TEMPLATE[] = "FILE/A,QUICK/S";
+/* Command-line template - optional FILE argument and optional QUICK/CLIPBOARD switches */
+static const char TEMPLATE[] = "FILE,QUICK/S,CLIPBOARD/S";
 
 /* Usage string */
-static const char USAGE[] = "Usage: iffparse FILE/A [QUICK/S]\n"
-                             "  FILE/A - Input IFF file to parse\n"
-                             "  QUICK/S - Show only chunk structure (no descriptions or metadata details)\n";
+static const char USAGE[] = "Usage: iffparse [FILE] [QUICK/S] [CLIPBOARD/S]\n"
+                             "  FILE - Input IFF file to parse (required if CLIPBOARD not specified)\n"
+                             "  QUICK/S - Show only chunk structure (no descriptions or metadata details)\n"
+                             "  CLIPBOARD/S - Read IFF data from clipboard instead of file\n";
 
 /* Library base - needed for proto includes */
 struct Library *IFFParseBase;
+
+/* IFF error codes */
+#define IFFERR_EOF        -1L   /* Reached logical end of file  */
+#define IFFERR_EOC        -2L   /* About to leave context       */
+#define IFFERR_NOSCOPE    -3L   /* No valid scope for property  */
+#define IFFERR_NOMEM      -4L   /* Internal memory alloc failed */
+#define IFFERR_READ       -5L   /* Stream read error            */
+#define IFFERR_WRITE      -6L   /* Stream write error           */
+#define IFFERR_SEEK       -7L   /* Stream seek error            */
+#define IFFERR_MANGLED    -8L   /* Data in file is corrupt      */
+#define IFFERR_SYNTAX     -9L   /* IFF syntax error             */
+#define IFFERR_NOTIFF     -10L  /* Not an IFF file              */
+#define IFFERR_NOHOOK     -11L  /* No call-back hook provided   */
+#define IFF_RETURN2CLIENT -12L  /* Client handler normal return */
+
+/* Clipboard unit constant */
+#define PRIMARY_CLIP      0L    /* Primary clipboard unit */
 
 /* IFF chunk IDs */
 #define MAKE_ID(a,b,c,d) \
@@ -93,6 +111,8 @@ struct Library *IFFParseBase;
 #define ID_COPYRIGHT MAKE_ID('(','c',')',' ')
 #define ID_NAME      MAKE_ID('N','A','M','E')
 #define ID_CHRS      MAKE_ID('C','H','R','S')
+#define ID_FVER      MAKE_ID('F','V','E','R')
+#define ID_CSTR      MAKE_ID('C','S','T','R')
 #define ID_LIST      MAKE_ID('L','I','S','T')
 #define ID_CAT       MAKE_ID('C','A','T',' ')
 #define ID_PROP      MAKE_ID('P','R','O','P')
@@ -165,6 +185,8 @@ STRPTR GetChunkDescription(ULONG chunkID)
         case ID_TEXT: return "Text data";
         case ID_NAME: return "Name of art/music";
         case ID_CHRS: return "Character string";
+        case ID_FVER: return "File version";
+        case ID_CSTR: return "Character string";
         case ID_DGBL: return "Deep Global information";
         case ID_DPEL: return "Deep Pixel Elements";
         case ID_DLOC: return "Deep display Location";
@@ -202,6 +224,29 @@ STRPTR GetChunkDescription(ULONG chunkID)
         case ID_WBHD: return "Workbench Hidden Device Preferences";
         case ID_WBTF: return "Workbench Title Format Preferences";
         default: return NULL;
+    }
+}
+
+/*
+** GetIFFErrorMessage - Get human-readable error message for IFF error code
+** Returns: Pointer to error message string
+*/
+static STRPTR GetIFFErrorMessage(LONG error)
+{
+    switch (error) {
+        case IFFERR_EOF: return "End of file (not an error)";
+        case IFFERR_EOC: return "End of context (not an error)";
+        case IFFERR_NOSCOPE: return "No lexical scope";
+        case IFFERR_NOMEM: return "Insufficient memory";
+        case IFFERR_READ: return "Stream read error";
+        case IFFERR_WRITE: return "Stream write error";
+        case IFFERR_SEEK: return "Stream seek error";
+        case IFFERR_MANGLED: return "Data in file is corrupt";
+        case IFFERR_SYNTAX: return "IFF syntax error";
+        case IFFERR_NOTIFF: return "Not an IFF file";
+        case IFFERR_NOHOOK: return "Required call-back hook missing";
+        case IFF_RETURN2CLIENT: return "Return to client";
+        default: return "Unknown IFF error";
     }
 }
 
@@ -1301,7 +1346,8 @@ VOID PrintChunkInfo(struct ContextNode *cn, LONG indent, struct IFFHandle *iff, 
     /* Check if this is a text chunk */
     isTextChunk = (chunkID == ID_TEXT || chunkID == ID_ANNO || 
                    chunkID == ID_AUTH || chunkID == ID_COPYRIGHT ||
-                   chunkID == ID_NAME || chunkID == ID_CHRS);
+                   chunkID == ID_NAME || chunkID == ID_CHRS ||
+                   chunkID == ID_FVER || chunkID == ID_CSTR);
     
     /* Check if this is a metadata chunk we can parse */
     isMetadataChunk = (chunkID == ID_BMHD || chunkID == ID_CMAP || 
@@ -1369,16 +1415,19 @@ VOID PrintChunkInfo(struct ContextNode *cn, LONG indent, struct IFFHandle *iff, 
 int main(int argc, char **argv)
 {
     struct RDArgs *rdargs;
-    LONG args[2]; /* FILE, QUICK */
+    LONG args[3]; /* FILE, QUICK, CLIPBOARD */
     char inputFile[256]; /* Local copy of filename */
     struct IFFHandle *iff;
     BPTR filehandle;
+    struct ClipboardHandle *clipHandle;
     LONG error;
     struct ContextNode *cn;
     LONG indent;
     BOOL quick;
+    BOOL useClipboard;
     ULONG formType;
     UBYTE outputBuffer[256];
+    UBYTE errorBuffer[128];
     STRPTR desc;
     
     /* Open iffparse.library */
@@ -1391,20 +1440,25 @@ int main(int argc, char **argv)
     /* Initialize args array - ReadArgs will fill with pointers to strings */
     args[0] = 0; /* FILE */
     args[1] = 0; /* QUICK (boolean) */
+    args[2] = 0; /* CLIPBOARD (boolean) */
     
     /* Parse command-line arguments */
     rdargs = ReadArgs((STRPTR)TEMPLATE, args, NULL);
     if (!rdargs) {
-        /* ReadArgs returns NULL on failure (e.g., missing required /A arguments) */
+        /* ReadArgs returns NULL on failure */
         PutStr((STRPTR)USAGE);
         CloseLibrary(IFFParseBase);
         IFFParseBase = NULL;
         return (int)RETURN_FAIL;
     }
     
-    /* With /A modifier, ReadArgs ensures args are filled, but check anyway */
-    if (!args[0]) {
-        PutStr("Error: Missing required FILE argument\n");
+    /* Get switch values (non-zero if set) */
+    quick = (args[1] != 0);
+    useClipboard = (args[2] != 0);
+    
+    /* Validate arguments: either FILE or CLIPBOARD must be specified */
+    if (!useClipboard && !args[0]) {
+        PutStr("Error: Either FILE or CLIPBOARD must be specified\n");
         PutStr((STRPTR)USAGE);
         FreeArgs(rdargs);
         CloseLibrary(IFFParseBase);
@@ -1413,79 +1467,136 @@ int main(int argc, char **argv)
     }
     
     /* Copy string from ReadArgs before calling FreeArgs() */
-    Strncpy(inputFile, (STRPTR)args[0], sizeof(inputFile) - 1);
-    inputFile[sizeof(inputFile) - 1] = '\0';
-    
-    /* Get switch value (non-zero if set) */
-    quick = (args[1] != 0);
+    if (args[0]) {
+        Strncpy(inputFile, (STRPTR)args[0], sizeof(inputFile) - 1);
+        inputFile[sizeof(inputFile) - 1] = '\0';
+    } else {
+        inputFile[0] = '\0';
+    }
     
     /* Free ReadArgs memory now that we've copied the string we need */
     FreeArgs(rdargs);
     
-    /* Check if input file exists */
-    {
-        BPTR lock;
-        struct FileInfoBlock fib;
+    /* Initialize filehandle and clipHandle to NULL */
+    filehandle = NULL;
+    clipHandle = NULL;
+    
+    if (useClipboard) {
+        /* Use clipboard instead of file */
+        /* Allocate IFF handle */
+        iff = AllocIFF();
+        if (!iff) {
+            PutStr("Error: Cannot allocate IFF handle\n");
+            CloseLibrary(IFFParseBase);
+            IFFParseBase = NULL;
+            return (int)RETURN_FAIL;
+        }
         
-        lock = Lock((STRPTR)inputFile, ACCESS_READ);
-        if (!lock) {
-            PutStr("Error: Input file does not exist: ");
+        /* Open clipboard */
+        clipHandle = OpenClipboard(PRIMARY_CLIP);
+        if (!clipHandle) {
+            error = IoErr();
+            Fault(error, (STRPTR)"Clipboard open failed", (STRPTR)errorBuffer, sizeof(errorBuffer));
+            PutStr((STRPTR)errorBuffer);
+            PutStr("\n");
+            FreeIFF(iff);
+            CloseLibrary(IFFParseBase);
+            IFFParseBase = NULL;
+            return (int)RETURN_FAIL;
+        }
+        
+        /* Initialize IFF handle for clipboard stream */
+        InitIFFasClip(iff);
+        iff->iff_Stream = (ULONG)clipHandle;
+    } else {
+        /* Use file input */
+        /* Check if input file exists */
+        {
+            BPTR lock;
+            struct FileInfoBlock fib;
+            
+            lock = Lock((STRPTR)inputFile, ACCESS_READ);
+            if (!lock) {
+                error = IoErr();
+                PutStr("Error: Input file does not exist: ");
+                PutStr((STRPTR)inputFile);
+                PutStr(" - ");
+                Fault(error, (STRPTR)"", (STRPTR)errorBuffer, sizeof(errorBuffer));
+                PutStr((STRPTR)errorBuffer);
+                PutStr("\n");
+                CloseLibrary(IFFParseBase);
+                IFFParseBase = NULL;
+                return (int)RETURN_FAIL;
+            }
+            
+            /* Check if it's actually a file (not a directory) */
+            if (Examine(lock, &fib)) {
+                if (fib.fib_DirEntryType > 0) {
+                    /* It's a directory, not a file */
+                    UnLock(lock);
+                    PutStr("Error: Input path is a directory, not a file: ");
+                    PutStr((STRPTR)inputFile);
+                    PutStr("\n");
+                    CloseLibrary(IFFParseBase);
+                    IFFParseBase = NULL;
+                    return (int)RETURN_FAIL;
+                }
+            }
+            UnLock(lock);
+        }
+        
+        /* Open file with DOS */
+        filehandle = Open((STRPTR)inputFile, MODE_OLDFILE);
+        if (!filehandle) {
+            error = IoErr();
+            PutStr("Error: Cannot open IFF file: ");
             PutStr((STRPTR)inputFile);
+            PutStr(" - ");
+            Fault(error, (STRPTR)"", (STRPTR)errorBuffer, sizeof(errorBuffer));
+            PutStr((STRPTR)errorBuffer);
             PutStr("\n");
             CloseLibrary(IFFParseBase);
             IFFParseBase = NULL;
             return (int)RETURN_FAIL;
         }
         
-        /* Check if it's actually a file (not a directory) */
-        if (Examine(lock, &fib)) {
-            if (fib.fib_DirEntryType > 0) {
-                /* It's a directory, not a file */
-                UnLock(lock);
-                PutStr("Error: Input path is a directory, not a file: ");
-                PutStr((STRPTR)inputFile);
-                PutStr("\n");
-                CloseLibrary(IFFParseBase);
-                IFFParseBase = NULL;
-                return (int)RETURN_FAIL;
-            }
+        /* Allocate IFF handle */
+        iff = AllocIFF();
+        if (!iff) {
+            PutStr("Error: Cannot allocate IFF handle\n");
+            Close(filehandle);
+            CloseLibrary(IFFParseBase);
+            IFFParseBase = NULL;
+            return (int)RETURN_FAIL;
         }
-        UnLock(lock);
+        
+        /* Initialize IFF handle for DOS stream */
+        InitIFFasDOS(iff);
+        iff->iff_Stream = (ULONG)filehandle;
     }
-    
-    /* Open file with DOS */
-    filehandle = Open((STRPTR)inputFile, MODE_OLDFILE);
-    if (!filehandle) {
-        PutStr("Error: Cannot open IFF file: ");
-        PutStr((STRPTR)inputFile);
-        PutStr("\n");
-        CloseLibrary(IFFParseBase);
-        IFFParseBase = NULL;
-        return (int)RETURN_FAIL;
-    }
-    
-    /* Allocate IFF handle */
-    iff = AllocIFF();
-    if (!iff) {
-        PutStr("Error: Cannot allocate IFF handle\n");
-        Close(filehandle);
-        CloseLibrary(IFFParseBase);
-        IFFParseBase = NULL;
-        return (int)RETURN_FAIL;
-    }
-    
-    /* Initialize IFF handle for DOS stream */
-    InitIFFasDOS(iff);
-    iff->iff_Stream = (ULONG)filehandle;
     
     /* Open IFF for reading */
     error = OpenIFF(iff, IFFF_READ);
     if (error != 0) {
         PutStr("Error: Cannot open IFF stream: ");
-        PutStr((STRPTR)inputFile);
+        if (useClipboard) {
+            PutStr("clipboard");
+        } else {
+            PutStr((STRPTR)inputFile);
+        }
+        PutStr(" - ");
+        PutStr(GetIFFErrorMessage(error));
         PutStr("\n");
         FreeIFF(iff);
-        Close(filehandle);
+        if (useClipboard) {
+            if (clipHandle) {
+                CloseClipboard(clipHandle);
+            }
+        } else {
+            if (filehandle) {
+                Close(filehandle);
+            }
+        }
         CloseLibrary(IFFParseBase);
         IFFParseBase = NULL;
         return (int)RETURN_FAIL;
@@ -1493,8 +1604,13 @@ int main(int argc, char **argv)
     
     /* Print header */
     if (!quick) {
-        PutStr("IFF File: ");
-        PutStr((STRPTR)inputFile);
+        PutStr("IFF ");
+        if (useClipboard) {
+            PutStr("Clipboard");
+        } else {
+            PutStr("File: ");
+            PutStr((STRPTR)inputFile);
+        }
         PutStr("\n");
         PutStr("========================================\n\n");
     }
@@ -1520,9 +1636,9 @@ int main(int argc, char **argv)
             /* Error or end of file */
             if (error != IFFERR_EOF) {
                 /* Real error */
-                SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer), 
-                         "Error parsing IFF file: %ld\n", error);
-                PutStr((STRPTR)outputBuffer);
+                PutStr("Error parsing IFF: ");
+                PutStr(GetIFFErrorMessage(error));
+                PutStr("\n");
             }
             break;
         }
@@ -1591,7 +1707,8 @@ int main(int argc, char **argv)
             
             isTextChunk = (cn->cn_ID == ID_TEXT || cn->cn_ID == ID_ANNO || 
                            cn->cn_ID == ID_AUTH || cn->cn_ID == ID_COPYRIGHT ||
-                           cn->cn_ID == ID_NAME || cn->cn_ID == ID_CHRS);
+                           cn->cn_ID == ID_NAME || cn->cn_ID == ID_CHRS ||
+                           cn->cn_ID == ID_FVER || cn->cn_ID == ID_CSTR);
             
             isMetadataChunk = (cn->cn_ID == ID_BMHD || cn->cn_ID == ID_CMAP || 
                                cn->cn_ID == ID_CAMG || cn->cn_ID == ID_GRAB ||
@@ -1704,8 +1821,16 @@ int main(int argc, char **argv)
     /* Close IFF context */
     CloseIFF(iff);
     
-    /* Close file handle */
-    Close(filehandle);
+    /* Close stream (file or clipboard) */
+    if (useClipboard) {
+        if (clipHandle) {
+            CloseClipboard(clipHandle);
+        }
+    } else {
+        if (filehandle) {
+            Close(filehandle);
+        }
+    }
     
     /* Free IFF handle */
     FreeIFF(iff);
