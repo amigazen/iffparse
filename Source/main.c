@@ -708,17 +708,26 @@ VOID PrintBinaryMetadata(struct IFFHandle *iff, ULONG chunkID, ULONG formType, L
         
         timeout = (UWORD)((buffer[16] << 8) | buffer[17]);
         metaDrag = (WORD)((buffer[18] << 8) | buffer[19]);
-        flags = (ULONG)((buffer[20] << 24) | (buffer[21] << 16) | 
-                       (buffer[22] << 8) | buffer[23]);
-        wbToFront = buffer[24];
-        frontToBack = buffer[25];
-        reqTrue = buffer[26];
-        reqFalse = buffer[27];
         
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Timeout: %u, MetaDrag: %d, Flags: 0x%08lx\n",
-                 timeout, (LONG)metaDrag, flags);
-        PutStr((STRPTR)outputBuffer);
+        /* Check if chunk is large enough for all fields */
+        if (chunkSize >= 28) {
+            flags = (ULONG)((buffer[20] << 24) | (buffer[21] << 16) | 
+                           (buffer[22] << 8) | buffer[23]);
+            wbToFront = buffer[24];
+            frontToBack = buffer[25];
+            reqTrue = buffer[26];
+            reqFalse = buffer[27];
+            
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Timeout: %u, MetaDrag: %d, Flags: 0x%08lx\n",
+                     timeout, (LONG)metaDrag, flags);
+            PutStr((STRPTR)outputBuffer);
+        } else {
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Timeout: %u, MetaDrag: %d (incomplete chunk data)\n",
+                     timeout, (LONG)metaDrag);
+            PutStr((STRPTR)outputBuffer);
+        }
     } else if (chunkID == ID_IEXC && chunkSize >= 16) {
         /* Intuition Exception Preferences */
         /* Variable-length TagItem array starting at offset 16 */
@@ -768,14 +777,20 @@ VOID PrintBinaryMetadata(struct IFFHandle *iff, ULONG chunkID, ULONG formType, L
             countryName[j] = (char)buffer[16 + j];
         }
         countryName[j] = '\0';
-        gmtoffset = (LONG)((buffer[48] << 24) | (buffer[49] << 16) | 
-                          (buffer[50] << 8) | buffer[51]);
-        flags = (ULONG)((buffer[52] << 24) | (buffer[53] << 16) | 
-                       (buffer[54] << 8) | buffer[55]);
         
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Country: %s, GMT offset: %ld, Flags: 0x%08lx\n",
-                 (STRPTR)countryName, gmtoffset, flags);
+        /* Check if chunk is large enough for gmtoffset and flags */
+        if (chunkSize >= 56) {
+            gmtoffset = (LONG)((buffer[48] << 24) | (buffer[49] << 16) | 
+                              (buffer[50] << 8) | buffer[51]);
+            flags = (ULONG)((buffer[52] << 24) | (buffer[53] << 16) | 
+                           (buffer[54] << 8) | buffer[55]);
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Country: %s, GMT offset: %ld, Flags: 0x%08lx\n",
+                     (STRPTR)countryName, gmtoffset, flags);
+        } else {
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Country: %s\n", (STRPTR)countryName);
+        }
         PutStr((STRPTR)outputBuffer);
     } else if (chunkID == ID_CTRY && chunkSize >= 20) {
         /* Country Preferences */
@@ -784,13 +799,19 @@ VOID PrintBinaryMetadata(struct IFFHandle *iff, ULONG chunkID, ULONG formType, L
         
         countryCode = (ULONG)((buffer[16] << 24) | (buffer[17] << 16) | 
                              (buffer[18] << 8) | buffer[19]);
-        telephoneCode = (ULONG)((buffer[20] << 24) | (buffer[21] << 16) | 
-                                (buffer[22] << 8) | buffer[23]);
-        measuringSystem = buffer[24];
         
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Country code: %lu, Telephone: %lu, Measure: %u\n",
-                 countryCode, telephoneCode, measuringSystem);
+        /* Check if chunk is large enough for telephoneCode and measuringSystem */
+        if (chunkSize >= 25) {
+            telephoneCode = (ULONG)((buffer[20] << 24) | (buffer[21] << 16) | 
+                                    (buffer[22] << 8) | buffer[23]);
+            measuringSystem = buffer[24];
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Country code: %lu, Telephone: %lu, Measure: %u\n",
+                     countryCode, telephoneCode, measuringSystem);
+        } else {
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Country code: %lu\n", countryCode);
+        }
         PutStr((STRPTR)outputBuffer);
     } else if (chunkID == ID_OSCN && chunkSize >= 28) {
         /* Overscan Preferences */
@@ -831,18 +852,28 @@ VOID PrintBinaryMetadata(struct IFFHandle *iff, ULONG chunkID, ULONG formType, L
         
         which = (UWORD)((buffer[16] << 8) | buffer[17]);
         size = (UWORD)((buffer[18] << 8) | buffer[19]);
-        width = (UWORD)((buffer[20] << 8) | buffer[21]);
-        height = (UWORD)((buffer[22] << 8) | buffer[23]);
-        depth = (UWORD)((buffer[24] << 8) | buffer[25]);
-        ySize = (UWORD)((buffer[26] << 8) | buffer[27]);
-        x = (WORD)((buffer[28] << 8) | buffer[29]);
-        y = (WORD)((buffer[30] << 8) | buffer[31]);
         
-        whichName = (which == 0) ? "Normal" : "Busy";
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Type: %s, Size: %u x %u, Depth: %u, Hotspot: (%d, %d)\n",
-                 whichName, width, height, depth, (LONG)x, (LONG)y);
-        PutStr((STRPTR)outputBuffer);
+        /* Check if chunk is large enough for all fields */
+        if (chunkSize >= 32) {
+            width = (UWORD)((buffer[20] << 8) | buffer[21]);
+            height = (UWORD)((buffer[22] << 8) | buffer[23]);
+            depth = (UWORD)((buffer[24] << 8) | buffer[25]);
+            ySize = (UWORD)((buffer[26] << 8) | buffer[27]);
+            x = (WORD)((buffer[28] << 8) | buffer[29]);
+            y = (WORD)((buffer[30] << 8) | buffer[31]);
+            
+            whichName = (which == 0) ? "Normal" : "Busy";
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Type: %s, Size: %u x %u, Depth: %u, Hotspot: (%d, %d)\n",
+                     whichName, width, height, depth, (LONG)x, (LONG)y);
+            PutStr((STRPTR)outputBuffer);
+        } else {
+            whichName = (which == 0) ? "Normal" : "Busy";
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Type: %s, Size: %u (incomplete chunk data)\n",
+                     whichName, size);
+            PutStr((STRPTR)outputBuffer);
+        }
     } else if (chunkID == ID_PGFX && chunkSize >= 28) {
         /* Printer Graphics Preferences */
         UWORD aspect, shade, image, threshold;
@@ -860,31 +891,41 @@ VOID PrintBinaryMetadata(struct IFFHandle *iff, ULONG chunkID, ULONG formType, L
         colorCorrect = buffer[24];
         dimensions = buffer[25];
         dithering = buffer[26];
-        graphicFlags = (UWORD)((buffer[27] << 8) | buffer[28]);
-        printDensity = buffer[29];
-        printMaxWidth = (UWORD)((buffer[30] << 8) | buffer[31]);
-        printMaxHeight = (UWORD)((buffer[32] << 8) | buffer[33]);
-        printXOffset = buffer[34];
-        printYOffset = buffer[35];
         
-        aspectName = (aspect == 0) ? "Horizontal" : "Vertical";
-        switch (shade) {
-            case 0: shadeName = "B&W"; break;
-            case 1: shadeName = "Grayscale"; break;
-            case 2: shadeName = "Color"; break;
-            case 3: shadeName = "Grayscale2"; break;
-            default: shadeName = "Unknown"; break;
+        /* Check if chunk is large enough for all fields */
+        if (chunkSize >= 36) {
+            graphicFlags = (UWORD)((buffer[27] << 8) | buffer[28]);
+            printDensity = buffer[29];
+            printMaxWidth = (UWORD)((buffer[30] << 8) | buffer[31]);
+            printMaxHeight = (UWORD)((buffer[32] << 8) | buffer[33]);
+            printXOffset = buffer[34];
+            printYOffset = buffer[35];
+            
+            aspectName = (aspect == 0) ? "Horizontal" : "Vertical";
+            switch (shade) {
+                case 0: shadeName = "B&W"; break;
+                case 1: shadeName = "Grayscale"; break;
+                case 2: shadeName = "Color"; break;
+                case 3: shadeName = "Grayscale2"; break;
+                default: shadeName = "Unknown"; break;
+            }
+            imageName = (image == 0) ? "Positive" : "Negative";
+            
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Aspect: %s, Shade: %s, Image: %s, Density: %u\n",
+                     aspectName, shadeName, imageName, printDensity);
+            PutStr((STRPTR)outputBuffer);
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Max size: %u x %u, Offset: (%u, %u)\n",
+                     printMaxWidth, printMaxHeight, printXOffset, printYOffset);
+            PutStr((STRPTR)outputBuffer);
+        } else {
+            aspectName = (aspect == 0) ? "Horizontal" : "Vertical";
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Aspect: %s, Threshold: %d (incomplete chunk data)\n",
+                     aspectName, (LONG)threshold);
+            PutStr((STRPTR)outputBuffer);
         }
-        imageName = (image == 0) ? "Positive" : "Negative";
-        
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Aspect: %s, Shade: %s, Image: %s, Density: %u\n",
-                 aspectName, shadeName, imageName, printDensity);
-        PutStr((STRPTR)outputBuffer);
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Max size: %u x %u, Offset: (%u, %u)\n",
-                 printMaxWidth, printMaxHeight, printXOffset, printYOffset);
-        PutStr((STRPTR)outputBuffer);
     } else if (chunkID == ID_PSPD && chunkSize >= 16) {
         /* PostScript Printer Preferences */
         UBYTE driverMode, paperFormat;
@@ -892,36 +933,41 @@ VOID PrintBinaryMetadata(struct IFFHandle *iff, ULONG chunkID, ULONG formType, L
         LONG hDPI, vDPI;
         STRPTR modeName, formatName;
         
-        driverMode = buffer[20];
-        paperFormat = buffer[21];
-        copies = (LONG)((buffer[24] << 24) | (buffer[25] << 16) | 
-                       (buffer[26] << 8) | buffer[27]);
-        paperWidth = (LONG)((buffer[28] << 24) | (buffer[29] << 16) | 
-                           (buffer[30] << 8) | buffer[31]);
-        paperHeight = (LONG)((buffer[32] << 24) | (buffer[33] << 16) | 
-                            (buffer[34] << 8) | buffer[35]);
-        hDPI = (LONG)((buffer[36] << 24) | (buffer[37] << 16) | 
-                     (buffer[38] << 8) | buffer[39]);
-        vDPI = (LONG)((buffer[40] << 24) | (buffer[41] << 16) | 
-                     (buffer[42] << 8) | buffer[43]);
-        
-        modeName = (driverMode == 0) ? "PostScript" : "Passthrough";
-        switch (paperFormat) {
-            case 0: formatName = "US Letter"; break;
-            case 1: formatName = "US Legal"; break;
-            case 2: formatName = "A4"; break;
-            case 3: formatName = "Custom"; break;
-            default: formatName = "Unknown"; break;
+        /* Check if chunk is large enough for all fields */
+        if (chunkSize >= 44) {
+            driverMode = buffer[20];
+            paperFormat = buffer[21];
+            copies = (LONG)((buffer[24] << 24) | (buffer[25] << 16) | 
+                           (buffer[26] << 8) | buffer[27]);
+            paperWidth = (LONG)((buffer[28] << 24) | (buffer[29] << 16) | 
+                               (buffer[30] << 8) | buffer[31]);
+            paperHeight = (LONG)((buffer[32] << 24) | (buffer[33] << 16) | 
+                                (buffer[34] << 8) | buffer[35]);
+            hDPI = (LONG)((buffer[36] << 24) | (buffer[37] << 16) | 
+                         (buffer[38] << 8) | buffer[39]);
+            vDPI = (LONG)((buffer[40] << 24) | (buffer[41] << 16) | 
+                         (buffer[42] << 8) | buffer[43]);
+            
+            modeName = (driverMode == 0) ? "PostScript" : "Passthrough";
+            switch (paperFormat) {
+                case 0: formatName = "US Letter"; break;
+                case 1: formatName = "US Legal"; break;
+                case 2: formatName = "A4"; break;
+                case 3: formatName = "Custom"; break;
+                default: formatName = "Unknown"; break;
+            }
+            
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Mode: %s, Format: %s, Copies: %ld\n",
+                     modeName, formatName, copies);
+            PutStr((STRPTR)outputBuffer);
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Paper: %ld x %ld, DPI: %ld x %ld\n",
+                     paperWidth, paperHeight, hDPI, vDPI);
+            PutStr((STRPTR)outputBuffer);
+        } else {
+            PutStr("  (Incomplete chunk data)\n");
         }
-        
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Mode: %s, Format: %s, Copies: %ld\n",
-                 modeName, formatName, copies);
-        PutStr((STRPTR)outputBuffer);
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Paper: %ld x %ld, DPI: %ld x %ld\n",
-                 paperWidth, paperHeight, hDPI, vDPI);
-        PutStr((STRPTR)outputBuffer);
     } else if (chunkID == ID_PTXT && chunkSize >= 32) {
         /* Text Printer Preferences */
         char driver[31];
@@ -935,28 +981,36 @@ VOID PrintBinaryMetadata(struct IFFHandle *iff, ULONG chunkID, ULONG formType, L
             driver[j] = (char)buffer[16 + j];
         }
         driver[j] = '\0';
-        port = buffer[46];
-        paperType = (UWORD)((buffer[47] << 8) | buffer[48]);
-        paperSize = (UWORD)((buffer[49] << 8) | buffer[50]);
-        paperLength = (UWORD)((buffer[51] << 8) | buffer[52]);
-        pitch = (UWORD)((buffer[53] << 8) | buffer[54]);
-        spacing = (UWORD)((buffer[55] << 8) | buffer[56]);
-        leftMargin = (UWORD)((buffer[57] << 8) | buffer[58]);
-        rightMargin = (UWORD)((buffer[59] << 8) | buffer[60]);
-        quality = (UWORD)((buffer[61] << 8) | buffer[62]);
         
-        portName = (port == 0) ? "Parallel" : "Serial";
-        paperTypeName = (paperType == 0) ? "Fanfold" : "Single";
-        qualityName = (quality == 0) ? "Draft" : "Letter";
-        
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Driver: %s, Port: %s, Type: %s, Quality: %s\n",
-                 (STRPTR)driver, portName, paperTypeName, qualityName);
-        PutStr((STRPTR)outputBuffer);
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Paper size: %u, Length: %u lines, Margins: %u-%u\n",
-                 paperSize, paperLength, leftMargin, rightMargin);
-        PutStr((STRPTR)outputBuffer);
+        /* Check if chunk is large enough for all fields */
+        if (chunkSize >= 63) {
+            port = buffer[46];
+            paperType = (UWORD)((buffer[47] << 8) | buffer[48]);
+            paperSize = (UWORD)((buffer[49] << 8) | buffer[50]);
+            paperLength = (UWORD)((buffer[51] << 8) | buffer[52]);
+            pitch = (UWORD)((buffer[53] << 8) | buffer[54]);
+            spacing = (UWORD)((buffer[55] << 8) | buffer[56]);
+            leftMargin = (UWORD)((buffer[57] << 8) | buffer[58]);
+            rightMargin = (UWORD)((buffer[59] << 8) | buffer[60]);
+            quality = (UWORD)((buffer[61] << 8) | buffer[62]);
+            
+            portName = (port == 0) ? "Parallel" : "Serial";
+            paperTypeName = (paperType == 0) ? "Fanfold" : "Single";
+            qualityName = (quality == 0) ? "Draft" : "Letter";
+            
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Driver: %s, Port: %s, Type: %s, Quality: %s\n",
+                     (STRPTR)driver, portName, paperTypeName, qualityName);
+            PutStr((STRPTR)outputBuffer);
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Paper size: %u, Length: %u lines, Margins: %u-%u\n",
+                     paperSize, paperLength, leftMargin, rightMargin);
+            PutStr((STRPTR)outputBuffer);
+        } else {
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Driver: %s (incomplete chunk data)\n", (STRPTR)driver);
+            PutStr((STRPTR)outputBuffer);
+        }
     } else if (chunkID == ID_PUNT && chunkSize >= 20) {
         /* Printer Unit Preferences */
         LONG unitNum;
@@ -1066,35 +1120,44 @@ VOID PrintBinaryMetadata(struct IFFHandle *iff, ULONG chunkID, ULONG formType, L
                           (buffer[18] << 8) | buffer[19]);
         inputBuffer = (ULONG)((buffer[20] << 24) | (buffer[21] << 16) | 
                              (buffer[22] << 8) | buffer[23]);
-        outputBuffer = (ULONG)((buffer[24] << 24) | (buffer[25] << 16) | 
-                              (buffer[26] << 8) | buffer[27]);
-        inputHandshake = buffer[28];
-        outputHandshake = buffer[29];
-        parity = buffer[30];
-        bitsPerChar = buffer[31];
-        stopBits = buffer[32];
         
-        switch (parity) {
-            case 0: parityName = "None"; break;
-            case 1: parityName = "Even"; break;
-            case 2: parityName = "Odd"; break;
-            default: parityName = "Unknown"; break;
+        /* Check if chunk is large enough for remaining fields */
+        if (chunkSize >= 33) {
+            outputBuffer = (ULONG)((buffer[24] << 24) | (buffer[25] << 16) | 
+                                  (buffer[26] << 8) | buffer[27]);
+            inputHandshake = buffer[28];
+            outputHandshake = buffer[29];
+            parity = buffer[30];
+            bitsPerChar = buffer[31];
+            stopBits = buffer[32];
+            
+            switch (parity) {
+                case 0: parityName = "None"; break;
+                case 1: parityName = "Even"; break;
+                case 2: parityName = "Odd"; break;
+                default: parityName = "Unknown"; break;
+            }
+            switch (inputHandshake) {
+                case 0: handshakeName = "XON"; break;
+                case 1: handshakeName = "RTS"; break;
+                case 2: handshakeName = "None"; break;
+                default: handshakeName = "Unknown"; break;
+            }
+            
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Baud: %lu, Parity: %s, Bits: %u, Stop: %u\n",
+                     baudRate, parityName, bitsPerChar, stopBits);
+            PutStr((STRPTR)outputBuffer);
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Handshake: %s, Buffers: %lu/%lu\n",
+                     handshakeName, inputBuffer, outputBuffer);
+            PutStr((STRPTR)outputBuffer);
+        } else {
+            SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
+                     "  Baud: %lu, Input buffer: %lu (incomplete chunk data)\n",
+                     baudRate, inputBuffer);
+            PutStr((STRPTR)outputBuffer);
         }
-        switch (inputHandshake) {
-            case 0: handshakeName = "XON"; break;
-            case 1: handshakeName = "RTS"; break;
-            case 2: handshakeName = "None"; break;
-            default: handshakeName = "Unknown"; break;
-        }
-        
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Baud: %lu, Parity: %s, Bits: %u, Stop: %u\n",
-                 baudRate, parityName, bitsPerChar, stopBits);
-        PutStr((STRPTR)outputBuffer);
-        SNPrintf((STRPTR)outputBuffer, sizeof(outputBuffer),
-                 "  Handshake: %s, Buffers: %lu/%lu\n",
-                 handshakeName, inputBuffer, outputBuffer);
-        PutStr((STRPTR)outputBuffer);
     } else if (chunkID == ID_SOND && chunkSize >= 20) {
         /* Sound Preferences */
         BOOL displayQueue, audioQueue;
