@@ -1,14 +1,18 @@
 ######################################################################
-# SMakefile for iffparse
+# SMakefile for iffparse and iffar
 # Build with SAS/C compiler
 ######################################################################
 
-TARGET = iffparse
+# --- iffparse (IFF inspector) ---
+IFFPARSE_TARGET = iffparse
+IFFPARSE_OBJS = main.o
 
-# Main program objects
-MAIN_OBJS = main.o
+# --- iffar (IFF CAT/LIST archiver) ---
+IFFAR_TARGET = iffar
+IFFAR_OBJS = iffar_main.o io.o iff.o create.o extract.o delete.o replace.o \
+             toc.o quickappend.o cleanup.o misc.o
 
-# Uncomment the next line to enable debug output:
+# Uncomment to enable debug output (iffparse) or assertions (iffar):
 # DEBUG_FLAG = DEFINE=DEBUG
 
 CFLAGS = DATA=NEAR CODE=NEAR PARAMETERS=REGISTERS NOSTACKCHECK \
@@ -17,24 +21,62 @@ CFLAGS = DATA=NEAR CODE=NEAR PARAMETERS=REGISTERS NOSTACKCHECK \
 
 LIBS = sc:lib/sc.lib LIB:amiga.lib sc:lib/scmieee.lib
 
-all: $(TARGET)
+all: $(IFFPARSE_TARGET) $(IFFAR_TARGET)
 
-# Build main program
-$(TARGET): $(MAIN_OBJS)
-	slink FROM sc:lib/c.o $(MAIN_OBJS) LIB $(LIBS) \
-	      TO $(TARGET).ld STRIPDEBUG
-	slink FROM $(TARGET).ld TO $(TARGET) STRIPDEBUG NODEBUG
-	@protect $(TARGET) add p quiet
+# --- iffparse ---
+$(IFFPARSE_TARGET): $(IFFPARSE_OBJS)
+	slink FROM sc:lib/c.o $(IFFPARSE_OBJS) LIB $(LIBS) \
+	      TO $(IFFPARSE_TARGET).ld STRIPDEBUG
+	slink FROM $(IFFPARSE_TARGET).ld TO $(IFFPARSE_TARGET) STRIPDEBUG NODEBUG
+	@protect $(IFFPARSE_TARGET) add p quiet
 
-# Compile main program sources
 main.o: main.c main.h
 	sc $(CFLAGS) OBJNAME=$@ main.c
 
+# --- iffar ---
+$(IFFAR_TARGET): $(IFFAR_OBJS)
+	slink FROM sc:lib/c.o $(IFFAR_OBJS) LIB $(LIBS) \
+	      TO $(IFFAR_TARGET).ld STRIPDEBUG
+	slink FROM $(IFFAR_TARGET).ld TO $(IFFAR_TARGET) STRIPDEBUG NODEBUG
+	@protect $(IFFAR_TARGET) add p quiet
+
+iffar_main.o: iffar_main.c io.h iff.h
+	sc $(CFLAGS) OBJNAME=$@ iffar_main.c
+
+io.o: io.c io.h
+	sc $(CFLAGS) OBJNAME=$@ io.c
+
+iff.o: iff.c iff.h io.h iffar_assert.h
+	sc $(CFLAGS) OBJNAME=$@ iff.c
+
+create.o: create.c iff.h io.h iffar_assert.h
+	sc $(CFLAGS) OBJNAME=$@ create.c
+
+extract.o: extract.c iff.h io.h
+	sc $(CFLAGS) OBJNAME=$@ extract.c
+
+delete.o: delete.c iff.h io.h
+	sc $(CFLAGS) OBJNAME=$@ delete.c
+
+replace.o: replace.c iff.h io.h
+	sc $(CFLAGS) OBJNAME=$@ replace.c
+
+toc.o: toc.c iff.h io.h iffar_assert.h
+	sc $(CFLAGS) OBJNAME=$@ toc.c
+
+quickappend.o: quickappend.c io.h
+	sc $(CFLAGS) OBJNAME=$@ quickappend.c
+
+cleanup.o: cleanup.c io.h
+	sc $(CFLAGS) OBJNAME=$@ cleanup.c
+
+misc.o: misc.c
+	sc $(CFLAGS) OBJNAME=$@ misc.c
+
 clean:
-	-delete $(MAIN_OBJS) $(TARGET) $(TARGET).ld
+	-delete $(IFFPARSE_OBJS) $(IFFPARSE_TARGET) $(IFFPARSE_TARGET).ld
+	-delete $(IFFAR_OBJS) $(IFFAR_TARGET) $(IFFAR_TARGET).ld
 
 install:
 	-copy iffparse /SDK/C/iffparse CLONE
-
-
-
+	-copy iffar /SDK/C/iffar CLONE
